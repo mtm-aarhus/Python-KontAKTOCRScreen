@@ -15,7 +15,7 @@ def make_queue_element_with_payload(
     queue_name: str,
     reference: Optional[str] = None,
     created_by: Optional[str] = None,
-    status: QueueStatus = QueueStatus.NEW, 
+    status: QueueStatus = QueueStatus.NEW,
 ) -> QueueElement:
     # Validate & serialize
     data_str = json.dumps(payload, ensure_ascii=False)
@@ -32,7 +32,7 @@ def make_queue_element_with_payload(
 
 # pylint: disable-next=unused-argum
 orchestrator_connection = OrchestratorConnection(
-    "KontAKTNovaToPDF",
+    "KontAKTOCRScreen",
     os.getenv("OpenOrchestratorSQL"),
     os.getenv("OpenOrchestratorKey"),
     None,
@@ -44,13 +44,11 @@ qe = make_queue_element_with_payload(
     payload={
         "kontakt_case_id": 11,
         "doc_id": 1,
-        "source_case_id": "S2024-12345",
-        "dok_id": "D2024-9",
-        "akt_id": 5,
-        "title": "Testdokument",
-        "case_title": "Test Nova sag"
+        "source_case_id": "GEO-2024-000170",
+        "dok_id": "8431876",
+        "sharepoint_url": "https://aarhuskommune.sharepoint.com/Teams/tea-teamsite12593/Delte dokumenter/11 - Sag/GEO-2024-000170/0001 - 8431876 - Test.pdf"
     },
-    queue_name="KontAKTNovaToPDF",
+    queue_name="KontAKTOCRScreen",
     reference="Sandbox",
     status=QueueStatus.NEW,
 )

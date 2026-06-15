@@ -9,7 +9,7 @@ FAIL_ROBOT_ON_TOO_MANY_ERRORS = False
 # Error screenshot config
 SMTP_SERVER = "smtp.adm.aarhuskommune.dk"
 SMTP_PORT = 25
-SCREENSHOT_SENDER = "dokumentliste@aarhus.dk"
+SCREENSHOT_SENDER = "kontakt@aarhus.dk"
 
 # Constant/Credential names
 ERROR_EMAIL = "Error Email"
@@ -19,7 +19,7 @@ ERROR_EMAIL = "Error Email"
 # ----------------------
 
 # The name of the job queue (if any)
-QUEUE_NAME = "KontAKTNovaToPDF"
+QUEUE_NAME = "KontAKTOCRScreen"
 
 # The limit on how many queue elements to process
 MAX_TASK_COUNT = 100

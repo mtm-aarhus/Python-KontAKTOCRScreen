@@ -1,27 +1,23 @@
 """This module handles resetting the state of the computer so the robot can work with a clean slate.
 
-For this robot the "state" is the set of remote connections (Nova token +
-SharePoint) and the cached OO credentials. ``open_all`` opens them and returns
-a :class:`Client`; ``reset`` re-opens them, so the queue framework can reconnect
-on a retry instead of reconnecting for every single document.
+For this robot the "state" is the SharePoint connection and the cached OO
+credentials. ``open_all`` opens them and returns a :class:`Client`; ``reset``
+re-opens them, so the queue framework can reconnect on a retry instead of doing
+a fresh cert-auth handshake for every document. (Documents are read straight
+from their SharePoint URL, so no GO/Nova connection is needed.)
 """
 
 from OpenOrchestrator.orchestrator_connection.connection import OrchestratorConnection
 
-from oomtm import nova as oomtm_nova
 from oomtm import sharepoint as sp
 
 
 class Client:
-    """Live Nova token + SharePoint connection + cached KontAKT credentials.
-
-    Opened once per run by ``open_all`` and reused across every queue element,
-    so a big case doesn't re-authenticate per document.
-    """
+    """Live SharePoint connection + cached KontAKT credentials, opened by
+    ``open_all`` and reused across every queue element (a run screens many
+    documents and shares one cert-auth handshake)."""
 
     def __init__(self, orchestrator_connection: OrchestratorConnection):
-        self.nova_url = orchestrator_connection.get_constant("KMDNovaURL").value
-        self.token = _get_kmd_token(orchestrator_connection)
         self.sp_ctx, self.sp_site_url = _build_sp_context(orchestrator_connection)
         kontakt = orchestrator_connection.get_credential("KontAKTAPI")
         self.kontakt_base = kontakt.username
@@ -57,36 +53,16 @@ def kill_all(orchestrator_connection: OrchestratorConnection) -> None:
 
 def open_all(orchestrator_connection: OrchestratorConnection) -> Client:
     """Open all connections used by the robot and return them as a :class:`Client`."""
-    orchestrator_connection.log_trace("Opening Nova + SharePoint connections.")
+    orchestrator_connection.log_trace("Opening SharePoint connection.")
     return Client(orchestrator_connection)
-
-
-# ----- KMD token caching -----------------------------------------------------
-
-
-def _get_kmd_token(orchestrator_connection: OrchestratorConnection) -> str:
-    ts_const = orchestrator_connection.get_constant("KMDTokenTimestamp")
-    token_cred = orchestrator_connection.get_credential("KMDAccessToken")
-    client_cred = orchestrator_connection.get_credential("KMDClientSecret")
-    result = oomtm_nova.get_token(
-        current_token=token_cred.password,
-        current_timestamp_str=ts_const.value,
-        token_url=token_cred.username,
-        client_id="aarhus_kommune",
-        client_secret=client_cred.password,
-    )
-    if result.refreshed:
-        orchestrator_connection.update_credential("KMDAccessToken", token_cred.username, result.token)
-        orchestrator_connection.update_constant("KMDTokenTimestamp", result.timestamp_str)
-    return result.token
 
 
 # ----- SharePoint context ----------------------------------------------------
 
 
 def _build_sp_context(orchestrator_connection):
-    cert = orchestrator_connection.get_credential("SharePointCert")
-    api = orchestrator_connection.get_credential("SharePointAPI")
+    cert = orchestrator_connection.get_credential("SharePointCert")  # user=thumbprint, pwd=cert_path
+    api = orchestrator_connection.get_credential("SharePointAPI")     # user=tenant,    pwd=client_id
     raw = (orchestrator_connection.get_constant("KontAKTSharePoint").value or "").strip().rstrip("/")
     for suffix in ("/Delte dokumenter", "/Delte%20dokumenter"):
         if raw.lower().endswith(suffix.lower()):
