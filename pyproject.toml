@@ -1,4 +1,4 @@
-[build-system]
+﻿[build-system]
 requires = ["setuptools>=65.0"]
 build-backend = "setuptools.build_meta"
 
@@ -21,7 +21,7 @@ dependencies = [
     "requests >= 2.31",
     "PyMuPDF >= 1.24",
     "pytesseract >= 0.3.10",
-    "Pillow >= 10.0",
+    "Pillow == 10.*",
 ]
 # NOTE: text is read from each PDF's own text layer where present (most converted
 # Office documents have one). OCR of scanned / image-only pages additionally needs

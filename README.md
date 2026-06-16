@@ -14,6 +14,9 @@ For one document:
    - **CPR numbers** — including numbers split across a line break,
    - **phone numbers** (Danish, `+45` or spaced pairs),
    - **e-mail addresses**.
+   Each hit also records its **location(s) on the page** — one rectangle per
+   word it covers (so a CPR split across a line gives two boxes) — so the
+   redaction editor can pre-place a box over it.
 4. Reports the suggestions back to KontAKT, where a caseworker reviews them.
 
 Names and addresses are deliberately **not** detected — they're too noisy to be useful as automatic suggestions. The results are heuristic hints for a human, not an authoritative redaction list.
@@ -36,14 +39,20 @@ A callback to KontAKT, per document:
 {
   "status": "screened",
   "suggestions": [
-    {"type": "cpr", "value": "010190-1234", "count": 2, "pages": [1, 3]},
-    {"type": "telefon", "value": "12 34 56 78", "count": 1, "pages": [2]},
-    {"type": "email", "value": "navn@eksempel.dk", "count": 1, "pages": [2]}
+    {"type": "cpr", "value": "010190-1234", "count": 2, "pages": [1, 3],
+     "rects": [
+       {"page": 1, "x0": 0.22, "y0": 0.10, "x1": 0.40, "y1": 0.12},
+       {"page": 3, "x0": 0.15, "y0": 0.55, "x1": 0.33, "y1": 0.57}
+     ]},
+    {"type": "telefon", "value": "12 34 56 78", "count": 1, "pages": [2],
+     "rects": [{"page": 2, "x0": 0.20, "y0": 0.30, "x1": 0.39, "y1": 0.32}]}
   ],
   "pages": 4,
   "ocr_used": true
 }
 ```
+
+Rect coordinates are fractions of the page (0–1, top-left origin), so they map onto the page at any render scale.
 
 On failure it reports `{"status": "error", "note": "…"}`.
 

@@ -95,7 +95,7 @@ def _screen(orchestrator_connection, client, dok_id, sharepoint_url):
         server_relative = unquote(urlparse(sharepoint_url).path)
         sp.download_file(client.sp_ctx, file_path=server_relative, local_path=str(local))
 
-        pages, ocr_used = screening.extract_text(str(local), log=orchestrator_connection.log_info)
+        pages, ocr_used = screening.extract_pages(str(local), log=orchestrator_connection.log_info)
         suggestions = screening.find_pii(pages)
 
     return {

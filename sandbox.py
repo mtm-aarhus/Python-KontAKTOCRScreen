@@ -4,7 +4,7 @@ from OpenOrchestrator.orchestrator_connection.connection import OrchestratorConn
 from OpenOrchestrator.database.queues import QueueElement, QueueStatus
 
 from robot_framework.process import process
-from robot_framework import reset
+from robot_framework import reset, config
 import os
 import json
 from typing import Optional
@@ -36,23 +36,41 @@ orchestrator_connection = OrchestratorConnection(
     os.getenv("OpenOrchestratorSQL"),
     os.getenv("OpenOrchestratorKey"),
     None,
+    None,
     None
 )
 
 
-qe = make_queue_element_with_payload(
-    payload={
-        "kontakt_case_id": 11,
-        "doc_id": 1,
-        "source_case_id": "GEO-2024-000170",
-        "dok_id": "8431876",
-        "sharepoint_url": "https://aarhuskommune.sharepoint.com/Teams/tea-teamsite12593/Delte dokumenter/11 - Sag/GEO-2024-000170/0001 - 8431876 - Test.pdf"
-    },
-    queue_name="KontAKTOCRScreen",
-    reference="Sandbox",
-    status=QueueStatus.NEW,
-)
-
 client = reset.reset(orchestrator_connection)
+                            
 
-process(orchestrator_connection, qe, client)
+USE_QUEUE = True
+
+if USE_QUEUE:
+    queue_element = None
+    task_count = 0
+    # Retry loop
+
+    # Queue loop
+    while task_count < config.MAX_TASK_COUNT:
+        task_count += 1
+        queue_element = orchestrator_connection.get_next_queue_element(config.QUEUE_NAME)
+
+        if not queue_element:
+            orchestrator_connection.log_info("Queue empty.")
+            break  # Break queue loop
+
+        process(orchestrator_connection, queue_element, client)
+        orchestrator_connection.set_queue_element_status(queue_element.id, QueueStatus.DONE)
+else:
+    qe = make_queue_element_with_payload(
+        payload={
+        },
+        queue_name="KontAKTOCRScreen",
+        reference="Sandbox",
+        status=QueueStatus.NEW,
+    )
+
+    process(orchestrator_connection, qe, client)
+
+
