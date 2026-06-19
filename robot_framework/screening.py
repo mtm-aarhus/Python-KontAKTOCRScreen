@@ -31,7 +31,10 @@ import re
 # "has a text layer" and not sent through OCR.
 _MIN_TEXT_CHARS = 20
 # Render scanned pages at this DPI before OCR (legibility vs. speed).
-_OCR_DPI = 300
+_OCR_DPI = 450
+# Screenshots/forms embedded as images are better treated as one text block than
+# with Tesseract's default fully automatic page segmentation.
+_OCR_CONFIG = "--psm 6"
 
 
 # ---------------------------------------------------------------------------
@@ -98,7 +101,7 @@ def _ocr_words(ocr, page, ocr_lang):
     from PIL import Image  # lazy
     pix = page.get_pixmap(dpi=_OCR_DPI, alpha=False)
     img = Image.frombytes("RGB", (pix.width, pix.height), pix.samples)
-    data = ocr.image_to_data(img, lang=ocr_lang, output_type=ocr.Output.DICT)
+    data = ocr.image_to_data(img, lang=ocr_lang, output_type=ocr.Output.DICT, config=_OCR_CONFIG)
     iw, ih = pix.width or 1, pix.height or 1
     words = []
     for i in range(len(data["text"])):

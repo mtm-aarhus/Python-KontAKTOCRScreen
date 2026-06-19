@@ -44,7 +44,7 @@ orchestrator_connection = OrchestratorConnection(
 client = reset.reset(orchestrator_connection)
                             
 
-USE_QUEUE = True
+USE_QUEUE = False
 
 if USE_QUEUE:
     queue_element = None
