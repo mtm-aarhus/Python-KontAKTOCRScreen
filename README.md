@@ -65,8 +65,8 @@ On failure it reports `{"status": "error", "note": "…"}`.
 
 ## Requirements on the worker
 
-- **Tesseract** with the Danish (`dan`) and English (`eng`) language data, for OCR of scanned pages. Put `tesseract` on `PATH`, or set the `TESSERACT_PATH` environment variable to the binary.
-- If Tesseract is missing, pages that already have a text layer are still screened; scanned pages are skipped with a logged warning (the result's `ocr_used` stays `false`).
+- **Tesseract** (with Danish + English language data) is used to OCR scanned / image-only pages. It is **auto-installed if missing** — the binary via `winget`/Chocolatey and the `dan`+`eng` language data downloaded to a user folder — the same way the conversion robots auto-install LibreOffice. Set `TESSERACT_PATH` to use an existing install instead, or `OOMTM_TESSDATA_BASE_URL` to change the language-data source (defaults to `tessdata_fast`).
+- Downloads go through the **OS trust store** (so they work behind a corporate TLS-inspection proxy). If a page can't be OCR'd (Tesseract truly unavailable), that page is left unscreened and the document is reported as **incomplete** (a ⚠ badge in KontAKT) rather than falsely "clean".
 
 ## Dependencies
 

@@ -37,8 +37,11 @@ OO config:
     Credential SharePointCert         — username = thumbprint, password = cert path
     Credential SharePointAPI          — username = tenant,     password = client id
     Credential KontAKTAPI             — username = base URL,    password = X-API-Key
-Optional (OCR of scanned pages):
-    Tesseract on PATH, or the TESSERACT_PATH env var, with the dan + eng data.
+OCR of scanned / image-only pages uses Tesseract, which is **auto-installed**
+(binary + Danish/English language data) if missing — the same way the
+conversion robots auto-install LibreOffice (via ``oomtm.pdf.ensure_tesseract``).
+Set ``TESSERACT_PATH`` to use an existing install instead; set
+``OOMTM_TESSDATA_BASE_URL`` to change where the language data is fetched from.
 """
 from OpenOrchestrator.orchestrator_connection.connection import OrchestratorConnection
 from OpenOrchestrator.database.queues import QueueElement
@@ -95,15 +98,28 @@ def _screen(orchestrator_connection, client, dok_id, sharepoint_url):
         server_relative = unquote(urlparse(sharepoint_url).path)
         sp.download_file(client.sp_ctx, file_path=server_relative, local_path=str(local))
 
-        pages, ocr_used = screening.extract_pages(str(local), log=orchestrator_connection.log_info)
+        pages, ocr_used, ocr_skipped = screening.extract_pages(str(local), log=orchestrator_connection.log_info)
         suggestions = screening.find_pii(pages)
 
-    return {
+    result = {
         "status": "screened",
         "suggestions": suggestions,
         "pages": len(pages),
         "ocr_used": ocr_used,
+        "ocr_skipped": ocr_skipped,
     }
+    if ocr_skipped:
+        # Some image/scanned pages couldn't be OCR'd — screening is INCOMPLETE.
+        # KontAKT shows this as a warning instead of a clean result so the
+        # caseworker knows to check the document manually (and an admin knows to
+        # install Tesseract with the dan+eng language data on the OCR worker).
+        result["ocr_incomplete"] = True
+        result["note"] = (
+            f"{ocr_skipped} side(r) uden tekstlag kunne ikke OCR-screenes "
+            "(Tesseract mangler eller fejlede). Screeningen er ufuldstændig — "
+            "gennemgå dokumentet manuelt."
+        )
+    return result
 
 
 # ----- KontAKT callback ------------------------------------------------------

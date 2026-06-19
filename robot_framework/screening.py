@@ -39,12 +39,17 @@ _OCR_DPI = 300
 # ---------------------------------------------------------------------------
 
 
-def extract_pages(pdf_path: str, *, ocr_lang: str = "dan+eng", log=None) -> tuple[list[list[dict]], bool]:
-    """Return ``(pages, ocr_used)``.
+def extract_pages(pdf_path: str, *, ocr_lang: str = "dan+eng", log=None) -> tuple[list[list[dict]], bool, int]:
+    """Return ``(pages, ocr_used, ocr_skipped)``.
 
     ``pages`` is one entry per page: a list of words ``{"text": str,
     "box": (x0, y0, x1, y1)}`` with the box normalised to the page (0..1,
     top-left origin), in reading order.
+
+    ``ocr_skipped`` counts pages that had **no text layer and could not be
+    OCR'd** (Tesseract missing or it errored). Those pages went unscreened, so
+    the caller must flag the screening as incomplete rather than report a clean
+    result — otherwise PII in a scanned/image page is silently missed.
     """
     log = log or (lambda *_: None)
     import fitz  # PyMuPDF — lazy import
@@ -52,24 +57,32 @@ def extract_pages(pdf_path: str, *, ocr_lang: str = "dan+eng", log=None) -> tupl
     ocr = _load_tesseract(log)
     pages: list[list[dict]] = []
     ocr_used = False
+    ocr_skipped = 0
     with fitz.open(pdf_path) as doc:
         for page in doc:
             pw, ph = page.rect.width, page.rect.height
             raw = page.get_text("words", sort=True)  # (x0,y0,x1,y1, word, block, line, wordno)
             char_count = sum(len(w[4]) for w in raw)
-            if char_count >= _MIN_TEXT_CHARS or ocr is None:
-                pages.append([
-                    {"text": w[4], "box": _norm_box(w[0], w[1], w[2], w[3], pw, ph)}
-                    for w in raw if (w[4] or "").strip()
-                ])
+            text_words = [
+                {"text": w[4], "box": _norm_box(w[0], w[1], w[2], w[3], pw, ph)}
+                for w in raw if (w[4] or "").strip()
+            ]
+            if char_count >= _MIN_TEXT_CHARS:
+                pages.append(text_words)
+                continue
+            # Little/no text layer → the page needs OCR to be screened.
+            if ocr is None:
+                ocr_skipped += 1     # no Tesseract — this page goes UNscreened
+                pages.append(text_words)
                 continue
             try:
                 pages.append(_ocr_words(ocr, page, ocr_lang))
                 ocr_used = True
             except Exception as exc:  # pylint: disable=broad-except
                 log(f"OCR fejlede på en side: {exc!r}")
-                pages.append([])
-    return pages, ocr_used
+                ocr_skipped += 1
+                pages.append(text_words)
+    return pages, ocr_used, ocr_skipped
 
 
 def _norm_box(x0, y0, x1, y1, pw, ph):
@@ -107,7 +120,17 @@ def _load_tesseract(log):
         return None
     cmd = os.getenv("TESSERACT_PATH")
     if cmd:
-        pytesseract.pytesseract.tesseract_cmd = cmd
+        pytesseract.pytesseract.tesseract_cmd = cmd   # honour a manual setup as-is
+    else:
+        # Auto-install the binary + dan/eng language data if missing (the same way
+        # the conversion robot auto-installs LibreOffice) and point at the data.
+        try:
+            from oomtm import pdf as _oopdf
+            pytesseract.pytesseract.tesseract_cmd = _oopdf.ensure_tesseract(log=log)
+        except Exception as exc:  # pylint: disable=broad-except
+            log(f"Tesseract kunne ikke klargøres automatisk ({exc}) — scannede sider "
+                "bliver ikke OCR-screenet. Sæt evt. TESSERACT_PATH.")
+            return None
     try:
         pytesseract.get_tesseract_version()
     except Exception as exc:  # pylint: disable=broad-except
