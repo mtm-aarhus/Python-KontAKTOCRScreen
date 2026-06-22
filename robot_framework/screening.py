@@ -164,9 +164,35 @@ _PHONE_RE = re.compile(
 _EMAIL_RE = re.compile(r"[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}")
 
 
-def _valid_cpr_date(dd: str, mm: str) -> bool:
-    day, month = int(dd), int(mm)
-    return 1 <= day <= 31 and 1 <= month <= 12
+_DAYS_IN_MONTH = (31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31)
+
+
+def _is_leap_year(year: int) -> bool:
+    return year % 4 == 0 and (year % 100 != 0 or year % 400 == 0)
+
+
+def _cpr_birth_year(yy: int, serial7: int) -> int:
+    """Decode the 4-digit birth year from YY + the serial's first digit, per the
+    official CPR century table — needed so 29 February is only accepted in a real
+    leap year (the year, not just YY, decides the century)."""
+    if serial7 <= 3:
+        return 1900 + yy
+    if serial7 in (4, 9):
+        return 2000 + yy if yy <= 36 else 1900 + yy
+    return 2000 + yy if yy <= 57 else 1800 + yy   # serial7 in 5..8
+
+
+def _valid_cpr_date(dd: str, mm: str, yy: str, serial: str) -> bool:
+    """True only if DDMMYY is a real calendar date (correct days-per-month and
+    leap years). A genuine CPR always has a valid birth date, so this rejects
+    only impossible coincidental matches (e.g. 31-04, 29-02 in a non-leap year)."""
+    day, month, year2 = int(dd), int(mm), int(yy)
+    if not (1 <= month <= 12):
+        return False
+    serial7 = int(serial[0]) if serial[:1].isdigit() else 0
+    year = _cpr_birth_year(year2, serial7)
+    max_day = 29 if (month == 2 and _is_leap_year(year)) else _DAYS_IN_MONTH[month - 1]
+    return 1 <= day <= max_day
 
 
 def _join_words(words: list[dict]) -> tuple[str, list[int]]:
@@ -231,7 +257,7 @@ def find_pii(pages: list[list[dict]]) -> list[dict]:
 
         cpr_spans = []
         for m in _CPR_RE.finditer(joined):
-            if not _valid_cpr_date(m.group(1), m.group(2)):
+            if not _valid_cpr_date(m.group(1), m.group(2), m.group(3), m.group(4)):
                 continue
             cpr_spans.append((m.start(), m.end()))
             clean = f"{m.group(1)}{m.group(2)}{m.group(3)}-{m.group(4)}"
