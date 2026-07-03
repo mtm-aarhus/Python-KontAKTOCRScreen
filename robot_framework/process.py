@@ -77,7 +77,7 @@ def process(
     orchestrator_connection.log_info(f"OCRScreen case={case_id} doc={doc_id} dok={dok_id}")
 
     try:
-        result = _screen(orchestrator_connection, client, dok_id, sharepoint_url)
+        result = _screen(orchestrator_connection, client, case_id, doc_id, dok_id)
     except Exception as exc:
         orchestrator_connection.log_info(f"OCRScreen failed: {exc!r}")
         _callback(orchestrator_connection, client, case_id, doc_id, {"status": "error", "note": str(exc)[:500]})
@@ -88,15 +88,30 @@ def process(
     orchestrator_connection.log_info(f"OCRScreen done doc={doc_id}: {result.get('status')} ({n} forslag)")
 
 
-def _screen(orchestrator_connection, client, dok_id, sharepoint_url):
-    """Download the PDF, extract its text (with OCR fallback) and detect PII."""
-    if not sharepoint_url:
-        return {"status": "error", "note": "Dokumentet har ingen SharePoint-fil at screene."}
+def _fetch_content(client, case_id, doc_id, local_path) -> bool:
+    """Stream a document's stored bytes from KontAKT to ``local_path``. Returns
+    False if the file isn't in the store (404)."""
+    r = requests.get(
+        f"{client.kontakt_base}/api/v1/cases/{case_id}/documents/{doc_id}/content",
+        headers={"X-API-Key": client.kontakt_key}, timeout=300, stream=True,
+    )
+    if r.status_code == 404:
+        return False
+    r.raise_for_status()
+    with open(local_path, "wb") as fh:
+        for chunk in r.iter_content(1 << 20):
+            if chunk:
+                fh.write(chunk)
+    return True
 
+
+def _screen(orchestrator_connection, client, case_id, doc_id, dok_id):
+    """Fetch the PDF from KontAKT's file store, extract its text (with OCR
+    fallback) and detect PII."""
     with tempfile.TemporaryDirectory() as tmpdir:
         local = Path(tmpdir) / f"{dok_id or 'dokument'}.pdf"
-        server_relative = unquote(urlparse(sharepoint_url).path)
-        sp.download_file(client.sp_ctx, file_path=server_relative, local_path=str(local))
+        if not _fetch_content(client, case_id, doc_id, local):
+            return {"status": "error", "note": "Dokumentet har ingen fil at screene."}
 
         pages, ocr_used, ocr_skipped = screening.extract_pages(str(local), log=orchestrator_connection.log_info)
         suggestions = screening.find_pii(pages)
