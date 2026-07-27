@@ -33,9 +33,6 @@ Result posted back to KontAKT (per document):
     }
 
 OO config:
-    Constant   KontAKTSharePoint      — SharePoint site URL
-    Credential SharePointCert         — username = thumbprint, password = cert path
-    Credential SharePointAPI          — username = tenant,     password = client id
     Credential KontAKTAPI             — username = base URL,    password = X-API-Key
 OCR of scanned / image-only pages uses Tesseract, which is **auto-installed**
 (binary + Danish/English language data) if missing — the same way the
@@ -54,7 +51,6 @@ import requests
 
 from robot_framework import reset
 from robot_framework import screening
-from oomtm import sharepoint as sp
 
 
 def process(

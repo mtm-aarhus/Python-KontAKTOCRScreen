@@ -1,24 +1,19 @@
 """This module handles resetting the state of the computer so the robot can work with a clean slate.
 
-For this robot the "state" is the SharePoint connection and the cached OO
-credentials. ``open_all`` opens them and returns a :class:`Client`; ``reset``
-re-opens them, so the queue framework can reconnect on a retry instead of doing
-a fresh cert-auth handshake for every document. (Documents are read straight
-from their SharePoint URL, so no GO/Nova connection is needed.)
+For this robot the "state" is just the cached KontAKT credentials. ``open_all``
+caches them and returns a :class:`Client`; ``reset`` re-reads them, so the queue
+framework can reconnect on a retry. Documents are read from KontAKT's local file
+store over the API, so no GO/Nova/SharePoint connection is needed.
 """
 
 from OpenOrchestrator.orchestrator_connection.connection import OrchestratorConnection
 
-from oomtm import sharepoint as sp
-
 
 class Client:
-    """Live SharePoint connection + cached KontAKT credentials, opened by
-    ``open_all`` and reused across every queue element (a run screens many
-    documents and shares one cert-auth handshake)."""
+    """Cached KontAKT credentials, read by ``open_all`` and reused across every
+    queue element (a run screens many documents)."""
 
     def __init__(self, orchestrator_connection: OrchestratorConnection):
-        self.sp_ctx, self.sp_site_url = _build_sp_context(orchestrator_connection)
         kontakt = orchestrator_connection.get_credential("KontAKTAPI")
         self.kontakt_base = kontakt.username
         self.kontakt_key = kontakt.password
@@ -53,23 +48,5 @@ def kill_all(orchestrator_connection: OrchestratorConnection) -> None:
 
 def open_all(orchestrator_connection: OrchestratorConnection) -> Client:
     """Open all connections used by the robot and return them as a :class:`Client`."""
-    orchestrator_connection.log_trace("Opening SharePoint connection.")
+    orchestrator_connection.log_trace("Reading KontAKT credentials.")
     return Client(orchestrator_connection)
-
-
-# ----- SharePoint context ----------------------------------------------------
-
-
-def _build_sp_context(orchestrator_connection):
-    cert = orchestrator_connection.get_credential("SharePointCert")  # user=thumbprint, pwd=cert_path
-    api = orchestrator_connection.get_credential("SharePointAPI")     # user=tenant,    pwd=client_id
-    raw = (orchestrator_connection.get_constant("KontAKTSharePoint").value or "").strip().rstrip("/")
-    for suffix in ("/Delte dokumenter", "/Delte%20dokumenter"):
-        if raw.lower().endswith(suffix.lower()):
-            raw = raw[: -len(suffix)]
-    site_url = raw.rstrip("/")
-    ctx = sp.connect(
-        site_url=site_url, tenant=api.username, client_id=api.password,
-        thumbprint=cert.username, cert_path=cert.password,
-    )
-    return ctx, site_url
