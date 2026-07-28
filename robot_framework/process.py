@@ -2,7 +2,7 @@
 
 Queue-driven, one queue element per (PDF) document. For a single document it:
 
-  1. downloads the PDF from SharePoint,
+  1. downloads the PDF from KontAKT's local file store (GET .../content),
   2. extracts the text — the PDF's own text layer where present, Tesseract OCR
      (Danish + English) for scanned / image-only pages,
   3. scans the text for the personal data that typically must be redacted in an
@@ -19,8 +19,7 @@ Queue payload (set by KontAKT's "OCR-screen" trigger):
         "kontakt_case_id": 11,
         "doc_id": 42,
         "source_case_id": "GEO-2024-000170",
-        "dok_id": "8431876",
-        "sharepoint_url": "https://.../0001 - 8431876 - Titel.pdf"
+        "dok_id": "8431876"
     }
 
 Result posted back to KontAKT (per document):
@@ -68,7 +67,6 @@ def process(
     case_id = int(payload["kontakt_case_id"])
     doc_id = int(payload["doc_id"])
     dok_id = str(payload.get("dok_id") or "").strip()
-    sharepoint_url = str(payload.get("sharepoint_url") or "").strip()
 
     orchestrator_connection.log_info(f"OCRScreen case={case_id} doc={doc_id} dok={dok_id}")
 

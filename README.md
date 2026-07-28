@@ -2,13 +2,13 @@
 
 Screens a single PDF document for personal data and suggests what to redact, for the **KontAKT** aktindsigt (FOI request) system.
 
-KontAKT triggers this once per document after a case's files have been transferred to SharePoint and the caseworker starts OCR-screening. It only **suggests** — it never changes the document.
+KontAKT triggers this once per document after a case's files have been transferred and the caseworker starts OCR-screening. It only **suggests** — it never changes the document.
 
 ## What it does
 
 For one document:
 
-1. Downloads the PDF from SharePoint.
+1. Downloads the PDF from KontAKT's local file store (`GET /api/v1/cases/{id}/documents/{doc_id}/content`).
 2. Extracts the text — from the PDF's own text layer where it has one, and via **Tesseract OCR (Danish + English)** for scanned / image-only pages.
 3. Scans the text for the personal data that typically must be redacted:
    - **CPR numbers** — including numbers split across a line break,
@@ -26,10 +26,9 @@ Names and addresses are deliberately **not** detected — they're too noisy to b
 | Field | Meaning |
 |-------|---------|
 | `kontakt_case_id` | KontAKT case id |
-| `doc_id` | KontAKT document id (used for the result callback) |
+| `doc_id` | KontAKT document id (the PDF is read from the store by this id) |
 | `source_case_id` | GO/Nova case number |
 | `dok_id` | Source document id |
-| `sharepoint_url` | URL of the PDF to screen |
 
 ## Output
 
@@ -58,16 +57,13 @@ On failure it reports `{"status": "error", "note": "…"}`.
 
 ## Required configuration
 
-- Constant `KontAKTSharePoint` — SharePoint site URL
-- Credential `SharePointCert` — username = certificate thumbprint, password = certificate path
-- Credential `SharePointAPI` — username = tenant, password = client id
 - Credential `KontAKTAPI` — username = base URL, password = API key
 
 ## Requirements on the worker
 
-- **Tesseract** (with Danish + English language data) is used to OCR scanned / image-only pages. It is **auto-installed if missing** — the binary via `winget`/Chocolatey and the `dan`+`eng` language data downloaded to a user folder — the same way the conversion robots auto-install LibreOffice. Set `TESSERACT_PATH` to use an existing install instead, or `OOMTM_TESSDATA_BASE_URL` to change the language-data source (defaults to `tessdata_fast`).
-- Downloads go through the **OS trust store** (so they work behind a corporate TLS-inspection proxy). If a page can't be OCR'd (Tesseract truly unavailable), that page is left unscreened and the document is reported as **incomplete** (a ⚠ badge in KontAKT) rather than falsely "clean".
+- **Tesseract** (with Danish + English language data) is used to OCR scanned / image-only pages. It is **auto-installed if missing** (the same way the conversion robots auto-install LibreOffice). Set `TESSERACT_PATH` to use an existing install instead, or `OOMTM_TESSDATA_BASE_URL` to change the language-data source (defaults to `tessdata_fast`).
+- If a page can't be OCR'd (Tesseract truly unavailable), that page is left unscreened and the document is reported as **incomplete** (a ⚠ badge in KontAKT) rather than falsely "clean".
 
 ## Dependencies
 
-The shared [`oomtm`](https://github.com/mtm-aarhus/oomtm) library (`sharepoint`), plus [PyMuPDF](https://pymupdf.readthedocs.io/) for text/render and [pytesseract](https://pypi.org/project/pytesseract/) for OCR.
+The shared [`oomtm`](https://github.com/mtm-aarhus/oomtm) library (`pdf`, for the Tesseract auto-install), plus [PyMuPDF](https://pymupdf.readthedocs.io/) for text/render and [pytesseract](https://pypi.org/project/pytesseract/) for OCR.

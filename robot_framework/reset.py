@@ -3,7 +3,7 @@
 For this robot the "state" is just the cached KontAKT credentials. ``open_all``
 caches them and returns a :class:`Client`; ``reset`` re-reads them, so the queue
 framework can reconnect on a retry. Documents are read from KontAKT's local file
-store over the API, so no GO/Nova/SharePoint connection is needed.
+store over the API, so no external connection is needed.
 """
 
 from OpenOrchestrator.orchestrator_connection.connection import OrchestratorConnection
