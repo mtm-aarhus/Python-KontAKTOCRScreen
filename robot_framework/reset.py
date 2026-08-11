@@ -17,6 +17,9 @@ class Client:
         kontakt = orchestrator_connection.get_credential("KontAKTAPI")
         self.kontakt_base = kontakt.username
         self.kontakt_key = kontakt.password
+        # Screening rules per sag, for this run. The rules belong to the sag, not
+        # to the document, so a 200-document sag asks once instead of 200 times.
+        self.screening_specs: dict = {}
 
 
 def reset(orchestrator_connection: OrchestratorConnection) -> Client:

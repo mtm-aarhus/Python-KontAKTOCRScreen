@@ -8,14 +8,25 @@ Two layers, split so the tricky part is testable on its own:
   origin) so it's independent of render scale / DPI. Needs PyMuPDF (+ Tesseract
   for scanned pages).
 
-* ``find_pii`` — scan those words for the personal data that typically must be
-  redacted (CPR numbers, phone numbers, e-mail addresses) and return, for each
-  hit, the **rectangles** to redact. Pure logic over the word list — no PyMuPDF
-  needed — so the detection and coordinate mapping are unit-testable.
+* ``find_pii`` — scan those words for what the sag's screening rules ask for, and
+  return, for each hit, the **rectangles** to redact. Pure logic over the word
+  list — no PyMuPDF needed — so the detection and coordinate mapping are
+  unit-testable.
+
+The rules come from KontAKT as a compiled spec (see ``DEFAULT_SPEC`` for the
+shape, and ``app/screening_rules.py`` for where they are built): the fixed
+patterns a caseworker ticked on, plus the words and phrases on the lists that
+apply to that sag. The patterns are built there so the caseworker's "matcher
+eksempelvis også …" cannot drift from what runs here; the *validation* of a hit
+(a CPR's date must be real, a CVR's control digit must add up) stays here,
+because that is logic rather than text. Without a spec the three usual patterns
+apply, so an upgrade in either order still screens.
 
 A hit that spans several words (e.g. a CPR split across a line break) yields one
 rect *per word*, so redaction covers each piece precisely instead of a single
-box bridging two lines. Names and addresses are deliberately not detected.
+box bridging two lines. Names and addresses are not offered as a fixed pattern —
+without a register to check against it is guesswork — but a name can of course be
+typed in as a word rule.
 
 OCR of scanned pages needs the Tesseract binary on the worker with the Danish
 (``dan``) and English (``eng``) language data. Point at it with ``TESSERACT_PATH``
@@ -224,24 +235,132 @@ def _match_rects(words, char_word, start, end, page) -> list[dict]:
     return rects
 
 
-def find_pii(pages: list[list[dict]]) -> list[dict]:
-    """Detect CPR numbers, phone numbers and e-mail addresses across the pages'
-    words. Returns de-duplicated suggestions::
+# ---------------------------------------------------------------------------
+# Validering af de faste mønstre
+#
+# A pattern says where to look; a validator says whether what was found counts.
+# The patterns come from KontAKT (app/screening_rules.py) so the caseworker's
+# "matcher eksempelvis også …" can't drift from what runs here; the checks stay
+# here because they are logic, not text. The spec names one by ``validate``.
+#
+# A validator returns (display_value, dedupe_key) or None to reject the match.
+# ---------------------------------------------------------------------------
 
-        {"type": "cpr"|"telefon"|"email", "value": str, "count": int,
-         "pages": [int], "rects": [{"page", "x0", "y0", "x1", "y1"}, ...]}
+
+def _v_cpr(m):
+    if len(m.groups()) < 4:
+        return None
+    if not _valid_cpr_date(m.group(1), m.group(2), m.group(3), m.group(4)):
+        return None
+    clean = f"{m.group(1)}{m.group(2)}{m.group(3)}-{m.group(4)}"
+    return clean, clean
+
+
+def _v_telefon(m):
+    digits = re.sub(r"\D", "", m.group(0))
+    if len(digits) == 10 and digits.startswith("45"):
+        digits = digits[2:]                     # drop the +45 country code
+    if len(digits) != 8:
+        return None
+    return " ".join(digits[i:i + 2] for i in range(0, 8, 2)), digits
+
+
+def _v_cvr(m):
+    """Modulus 11 over the first seven digits — a CVR number's control digit.
+
+    Eight digits is a common shape in a case (dates, amounts, act numbers), so
+    without this check the suggestion list would fill up with them.
+    """
+    digits = re.sub(r"\D", "", m.group(0))
+    if len(digits) != 8:
+        return None
+    weights = (2, 7, 6, 5, 4, 3, 2, 1)
+    if sum(int(d) * w for d, w in zip(digits, weights)) % 11 != 0:
+        return None
+    return digits, digits
+
+
+def _v_konto(m):
+    """Registreringsnummer + kontonummer, written the same way however it was
+    found, so "1234-567890" and "1234 567890" are one suggestion."""
+    digits = re.sub(r"\D", "", m.group(0))
+    if len(digits) < 10:
+        return None
+    return f"{digits[:4]}-{digits[4:]}", digits
+
+
+_VALIDATORS = {"cpr": _v_cpr, "telefon": _v_telefon, "cvr": _v_cvr, "konto": _v_konto}
+
+# What to screen for when KontAKT didn't say — an older KontAKT that doesn't serve
+# the rules endpoint yet. Exactly what this robot looked for before the lists
+# existed, so an upgrade in either order still screens.
+DEFAULT_SPEC = {
+    "version": 1,
+    "scopes": [],
+    "patterns": [
+        {"type": "cpr", "kind": "builtin", "label": "CPR-numre",
+         "regex": _CPR_RE.pattern, "validate": "cpr", "numeric": True},
+        {"type": "telefon", "kind": "builtin", "label": "Telefonnumre",
+         "regex": _PHONE_RE.pattern, "validate": "telefon", "numeric": True},
+        {"type": "email", "kind": "builtin", "label": "E-mailadresser",
+         "regex": _EMAIL_RE.pattern, "validate": None, "numeric": False},
+    ],
+}
+
+
+def _compile_spec(spec, log):
+    """(pattern dict, compiled regex, validator) per usable pattern.
+
+    A pattern that won't compile is skipped with a logged warning rather than
+    failing the whole screening: one broken rule must not stop the other twenty.
+    """
+    out = []
+    for p in (spec or {}).get("patterns") or []:
+        raw = p.get("regex") or ""
+        if not raw:
+            continue
+        try:
+            rx = re.compile(raw)
+        except re.error as exc:
+            log(f"Screeningsmønster kunne ikke bruges ({p.get('label')}): {exc}")
+            continue
+        name = p.get("validate")
+        if name and name not in _VALIDATORS:
+            # A pattern from a newer KontAKT whose check this robot doesn't know:
+            # suggest a little too much rather than silently nothing.
+            log(f"Ukendt validering {name!r} for {p.get('label')} — bruger mønsteret uden.")
+        out.append((p, rx, _VALIDATORS.get(name)))
+    return out
+
+
+def find_pii(pages: list[list[dict]], spec: dict | None = None, log=None) -> list[dict]:
+    """Detect what the case's screening rules ask for, across the pages' words.
+
+    ``spec`` is what KontAKT's ``…/screening-rules`` endpoint returned: the fixed
+    patterns ticked on for this sag, plus the words and phrases from the relevant
+    lists. Without one, DEFAULT_SPEC (CPR, telefon, e-mail) applies.
+
+    Returns de-duplicated suggestions::
+
+        {"type": "cpr"|"telefon"|"email"|"cvr"|"konto"|"ord"|"frase",
+         "label": str, "value": str, "count": int, "pages": [int],
+         "rects": [{"page", "x0", "y0", "x1", "y1"}, ...]}
 
     Page numbers are 1-based; rect coords are 0..1 of the page (top-left origin).
     These are heuristic hints for a caseworker to review and redact — not an
     authoritative list.
     """
+    log = log or (lambda *_: None)
+    patterns = _compile_spec(spec or DEFAULT_SPEC, log)
     found: dict = {}
 
-    def add(kind, key, value, page, rects):
+    def add(pattern, key, value, page, rects):
+        kind = pattern.get("type") or "ord"
         entry = found.get((kind, key))
         if entry is None:
             found[(kind, key)] = {
-                "type": kind, "value": value, "count": 1,
+                "type": kind, "label": pattern.get("label") or kind,
+                "value": value, "count": 1,
                 "pages": [page], "rects": list(rects),
             }
         else:
@@ -254,28 +373,27 @@ def find_pii(pages: list[list[dict]]) -> list[dict]:
         if not words:
             continue
         joined, char_word = _join_words(words)
+        # The numeric patterns overlap each other — a CPR number is also eight
+        # digits next to four — so the first one that accepts a stretch of digits
+        # keeps it. Patterns arrive in KontAKT's order, CPR first.
+        taken: list[tuple[int, int]] = []
 
-        cpr_spans = []
-        for m in _CPR_RE.finditer(joined):
-            if not _valid_cpr_date(m.group(1), m.group(2), m.group(3), m.group(4)):
-                continue
-            cpr_spans.append((m.start(), m.end()))
-            clean = f"{m.group(1)}{m.group(2)}{m.group(3)}-{m.group(4)}"
-            add("cpr", clean, clean, idx, _match_rects(words, char_word, m.start(), m.end(), idx))
-
-        for m in _EMAIL_RE.finditer(joined):
-            value = m.group(0)
-            add("email", value.lower(), value, idx, _match_rects(words, char_word, m.start(), m.end(), idx))
-
-        for m in _PHONE_RE.finditer(joined):
-            if any(start <= m.start() < end for start, end in cpr_spans):
-                continue
-            digits = re.sub(r"\D", "", m.group(0))
-            if len(digits) == 10 and digits.startswith("45"):
-                digits = digits[2:]  # drop the +45 country code
-            if len(digits) != 8:
-                continue
-            grouped = " ".join(digits[i:i + 2] for i in range(0, 8, 2))
-            add("telefon", digits, grouped, idx, _match_rects(words, char_word, m.start(), m.end(), idx))
+        for pattern, rx, validate in patterns:
+            numeric = bool(pattern.get("numeric"))
+            for m in rx.finditer(joined):
+                if numeric and any(s <= m.start() < e for s, e in taken):
+                    continue
+                if validate is not None:
+                    checked = validate(m)
+                    if checked is None:
+                        continue
+                    value, key = checked
+                else:
+                    value = m.group(0)
+                    key = value.casefold()
+                if numeric:
+                    taken.append((m.start(), m.end()))
+                add(pattern, key, value, idx,
+                    _match_rects(words, char_word, m.start(), m.end(), idx))
 
     return list(found.values())
